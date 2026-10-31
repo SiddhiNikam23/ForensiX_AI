@@ -1,0 +1,3 @@
+:root { color-scheme: light; }
+html, body, #root { margin: 0; padding: 0; width: 100%; max-width: none; }
+body { display: block; place-items: initial; min-width: 320px; background: #fff; }
