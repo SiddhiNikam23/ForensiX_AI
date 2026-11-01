@@ -2,6 +2,9 @@ import { useState, useEffect, useCallback } from "react";
 import "./App.css";
 import Home from "./pages/Home";
 import Analyze from "./pages/Analyze";
+import Report from "./pages/Report";
+   import ReportCard from "./pages/ReportCard";
+
 
 const routeOf = () => window.location.hash.replace(/^#/, "") || "/";
 
@@ -49,7 +52,7 @@ export default function App() {
         </div>
       </header>
 
-      {route === "/analyze" ? <Analyze /> : <Home go={go} />}
+         {route === "/report" ? <Report /> : route === "/card" ? <ReportCard /> : route === "/analyze" ? <Analyze /> : <Home go={go} />}
 
       <footer className="footer">
         <div className="container footer-in">

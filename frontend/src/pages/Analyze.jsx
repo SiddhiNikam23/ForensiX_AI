@@ -1,59 +1,33 @@
-import { useState, useRef, useEffect } from "react";
-import { api, errMsg, show, kb, toPct, imgSrc } from "../lib";
+import { useState, useEffect } from "react";
+import { api, errMsg, kb } from "../lib";
+import { setReport } from "../store";
 
-function Check({ level, title, summary, rows = [], children }) {
-  const label = { ok: "Clear", warn: "Flagged", info: "Details" }[level];
-  return (
-    <details className={`check ${level}`}>
-      <summary>
-        <span className="tag">{label}</span>
-        <span className="check-main">
-          <strong>{title}</strong>
-          <span>{summary}</span>
-        </span>
-        <span className="chev" aria-hidden="true" />
-      </summary>
-      <div className="check-body">
-        {rows.map(([k, v]) => (
-          <div className="kv" key={k}>
-            <span>{k}</span>
-            <strong>{show(v)}</strong>
-          </div>
-        ))}
-        {children}
-      </div>
-    </details>
-  );
-}
+const toDataUrl = (f) =>
+  new Promise((res) => {
+    const r = new FileReader();
+    r.onload = () => res(r.result);
+    r.onerror = () => res(null);
+    r.readAsDataURL(f);
+  });
 
 export default function Analyze() {
   const [file, setFile] = useState(null);
   const [preview, setPreview] = useState(null);
-  const [result, setResult] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [drag, setDrag] = useState(false);
-  const reportRef = useRef(null);
 
   useEffect(() => () => preview && URL.revokeObjectURL(preview), [preview]);
 
   const pick = (f) => {
     if (!f) return;
-    if (!/^image\/(jpeg|png|webp)$/.test(f.type)) {
-      setError("Unsupported file. Use a JPG, PNG or WEBP image.");
-      return;
-    }
-    setFile(f);
-    setPreview(URL.createObjectURL(f));
-    setResult(null);
-    setError("");
+    if (!/^image\/(jpeg|png|webp)$/.test(f.type)) { setError("Unsupported file. Use a JPG, PNG or WEBP image."); return; }
+    setFile(f); setPreview(URL.createObjectURL(f)); setError("");
   };
 
   const analyze = async () => {
     if (!file) return;
-    setLoading(true);
-    setError("");
-    setResult(null);
+    setLoading(true); setError("");
     const fd = new FormData();
     fd.append("file", file);
     try {
@@ -61,210 +35,104 @@ export default function Analyze() {
       if (data?.success === false) {
         setError(data.error || "Analysis failed. Try another image.");
       } else {
-        setResult(data?.result ?? data?.data ?? data);
-        setTimeout(() => reportRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 100);
+        const dataUrl = await toDataUrl(file);
+        setReport({
+          result: data?.result ?? data?.data ?? data,
+          preview: dataUrl,
+          when: new Date().toLocaleString(),
+        });
+        window.location.hash = "/report";
+        return;
       }
-    } catch (e) {
-      setError(errMsg(e, "Analysis failed. Try another image."));
-    }
+    } catch (e) { setError(errMsg(e, "Analysis failed. Try another image.")); }
     setLoading(false);
   };
 
-  const ai = result?.ai_detection;
-  const aiPct = toPct(ai?.ai_probability);
-  const isAI = ai?.verdict === "likely_ai" || (!ai?.verdict && aiPct >= 50);
-  const manip = result?.manipulation;
-  const manipFlag = !!manip?.manipulation_detected;
-  const meta = result?.metadata;
-  const metaEntries = Object.entries(meta?.metadata && typeof meta.metadata === "object" ? meta.metadata : {});
-
-  let level = "info", headline = "Analysis complete", sub = "Open each check below for details.";
-  if (ai) {
-    level = isAI ? "warn" : "ok";
-    headline = isAI ? "Likely AI-generated" : "Likely a real photo";
-    sub = `The model estimates a ${aiPct.toFixed(0)}% chance that this image is AI-generated.`;
-  } else if (manipFlag) {
-    level = "warn";
-    headline = "Possible editing detected";
-    sub = "Some regions look copied within the image.";
-  }
-
   return (
-    <>
-      <section className="app-head">
-        <div className="container">
-          <h1>Upload an image to analyze</h1>
-          <p>We'll run five forensic checks and show you a plain-language report.</p>
-        </div>
+    <div className="fx">
+      <style>{CSS}</style>
+
+      <section className="fx-hero">
+        <h1>Upload an image to analyze</h1>
+        <p>We'll run three forensic checks and show you a plain-language report.</p>
       </section>
 
-      <section className="section tight analyze-bg">
-        <div className="container">
-          <div className="analyze-card">
-            <label
-              className={`dz ${drag ? "drag" : ""} ${preview ? "has" : ""}`}
-              onDragOver={(e) => { e.preventDefault(); setDrag(true); }}
-              onDragLeave={() => setDrag(false)}
-              onDrop={(e) => { e.preventDefault(); setDrag(false); pick(e.dataTransfer.files[0]); }}
-            >
-              <input type="file" accept=".jpg,.jpeg,.png,.webp" onChange={(e) => pick(e.target.files[0])} />
-              {preview ? (
-                <>
-                  <img src={preview} alt="Selected" />
-                  <span className="dz-change">Change image</span>
-                </>
-              ) : (
-                <span className="dz-empty">
-                  <span className="dz-icon" aria-hidden="true">
-                    <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                      <path d="M12 16V4" /><path d="M7 9l5-5 5 5" /><path d="M4 16v3a1 1 0 001 1h14a1 1 0 001-1v-3" />
-                    </svg>
-                  </span>
-                  <strong>Drop your image here</strong>
-                  <span>or <u>browse files</u></span>
-                  <small>JPG, PNG or WEBP</small>
-                </span>
-              )}
-            </label>
-
-            <div className="analyze-info">
-              <h2>Image analysis</h2>
-              <p className="analyze-lead">Upload one image. Every report includes these checks:</p>
-
-              <ul className="includes">
-                <li>AI-generated image detection</li>
-                <li>Copy-paste editing detection</li>
-                <li>Error level analysis</li>
-                <li>Noise analysis</li>
-                <li>Metadata inspection</li>
-              </ul>
-
-              {file && (
-                <div className="file-chip">
-                  <strong>{file.name}</strong>
-                  <span>{kb(file.size)}</span>
-                </div>
-              )}
-
-              <button className="btn btn-primary btn-block" onClick={analyze} disabled={!file || loading}>
-                {loading ? (<><span className="spinner" /> Analyzing…</>) : "Analyze image"}
-              </button>
-              {error && <div className="error" role="alert">{error}</div>}
+      <section className="fx-upload">
+        <label
+          className={`fx-dz ${drag ? "drag" : ""} ${preview ? "has" : ""}`}
+          onDragOver={(e) => { e.preventDefault(); setDrag(true); }}
+          onDragLeave={() => setDrag(false)}
+          onDrop={(e) => { e.preventDefault(); setDrag(false); pick(e.dataTransfer.files[0]); }}
+        >
+          <input type="file" accept=".jpg,.jpeg,.png,.webp" onChange={(e) => pick(e.target.files[0])} hidden />
+          {preview ? (
+            <>
+              <img src={preview} alt="Selected" />
+              <span className="fx-chg">Change image</span>
+            </>
+          ) : (
+            <div className="fx-empty">
+              <div className="fx-dzicon">
+                <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 16V4" /><path d="M7 9l5-5 5 5" /><path d="M5 20h14" /></svg>
+              </div>
+              <strong>Drop your image here</strong>
+              <span>or <u>browse files</u></span>
+              <small>JPG, PNG or WEBP</small>
             </div>
-          </div>
+          )}
+        </label>
+
+        <div className="fx-info">
+          <h2>Image analysis</h2>
+          <p className="fx-lead">Upload one image. Every report includes these checks:</p>
+          <ul className="fx-includes">
+            <li>AI-generated image detection</li>
+            <li>Copy-paste editing detection</li>
+            <li>Error level and noise analysis</li>
+            <li>Metadata inspection</li>
+          </ul>
+          {file && <div className="fx-file"><strong>{file.name}</strong><span>{kb(file.size)}</span></div>}
+          <button className="fx-btn primary" onClick={analyze} disabled={!file || loading}>
+            {loading ? "Analyzing…" : "Analyze image"}
+          </button>
+          {error && <div className="fx-err" role="alert">{error}</div>}
         </div>
       </section>
-
-      {result && (
-        <section className="section report tight" ref={reportRef}>
-          <div className="container">
-            <h2 className="h2">Your report</h2>
-
-            <div className={`verdict ${level}`}>
-              <div>
-                <p className="verdict-label">Result</p>
-                <h3>{headline}</h3>
-                <p>{sub}</p>
-              </div>
-              {ai && (
-                <div className="meter" role="img" aria-label={`AI probability ${aiPct.toFixed(0)} percent`}>
-                  <div className="meter-labels"><span>Real</span><span>AI</span></div>
-                  <div className="meter-track"><i style={{ left: `${aiPct}%` }} /></div>
-                  <strong>{aiPct.toFixed(1)}% AI</strong>
-                </div>
-              )}
-            </div>
-
-            <div className="report-grid">
-              <div className="panel">
-                <h3 className="h3">What each check found</h3>
-
-                {ai && (
-                  <Check
-                    level={isAI ? "warn" : "ok"}
-                    title="AI-generated image check"
-                    summary={show(ai.final_result) !== "—" ? show(ai.final_result) : isAI ? "Looks AI-generated" : "Looks like a real photo"}
-                    rows={[
-                      ["AI probability", `${aiPct.toFixed(1)}%`],
-                      ["Real probability", `${(100 - aiPct).toFixed(1)}%`],
-                      ["Model confidence", ai.confidence],
-                    ]}
-                  >
-                    {Array.isArray(ai.reasons) && ai.reasons.length > 0 && (
-                      <><h4>Why</h4><ul>{ai.reasons.map((r, i) => <li key={i}>{show(r)}</li>)}</ul></>
-                    )}
-                    {Array.isArray(ai.limitations) && ai.limitations.length > 0 && (
-                      <><h4>Limits of this check</h4><ul>{ai.limitations.map((r, i) => <li key={i}>{show(r)}</li>)}</ul></>
-                    )}
-                  </Check>
-                )}
-
-                {manip && (
-                  <Check
-                    level={manipFlag ? "warn" : "ok"}
-                    title="Copy-paste editing check"
-                    summary={manipFlag ? "Some regions look duplicated" : "No duplicated regions found"}
-                    rows={[["Key points found", manip.keypoints_detected], ["Suspicious matches", manip.suspicious_matches]]}
-                  >
-                    {manip.message && <p className="muted">{show(manip.message)}</p>}
-                  </Check>
-                )}
-
-                {result.ela && (
-                  <Check
-                    level="info"
-                    title="Compression check (ELA)"
-                    summary="Bright, uneven areas can hint at edits"
-                    rows={[["Average error", result.ela.mean_error], ["Highest error", result.ela.max_error]]}
-                  >
-                    {imgSrc(result.ela.ela_image) && <img className="ela" src={imgSrc(result.ela.ela_image)} alt="Error level map" />}
-                  </Check>
-                )}
-
-                {result.noise && (
-                  <Check
-                    level="info"
-                    title="Noise check"
-                    summary="Real photos have steady grain across the image"
-                    rows={[
-                      ["Average noise", result.noise.mean_noise],
-                      ["Variance", result.noise.noise_variance],
-                      ["Local variation", result.noise.local_noise_std],
-                      ["Blocks checked", result.noise.blocks_analyzed],
-                    ]}
-                  />
-                )}
-
-                {meta && (
-                  <Check
-                    level="info"
-                    title="Camera data (metadata)"
-                    summary={meta.metadata_found ? `${show(meta.metadata_count)} fields found` : "No camera data found"}
-                    rows={metaEntries.slice(0, 10)}
-                  >
-                    {!meta.metadata_found && <p className="muted">Common for AI images and screenshots. It doesn't prove anything on its own.</p>}
-                  </Check>
-                )}
-              </div>
-
-              <aside className="panel">
-                <h3 className="h3">Image details</h3>
-                {preview && <img className="thumb" src={preview} alt="Analyzed" />}
-                <div className="kv"><span>File name</span><strong>{show(result.filename)}</strong></div>
-                <div className="kv"><span>Format</span><strong>{show(result.format)}</strong></div>
-                <div className="kv"><span>Dimensions</span><strong>{result.width && result.height ? `${result.width} × ${result.height}px` : "—"}</strong></div>
-                <div className="kv"><span>File size</span><strong>{kb(result.file_size)}</strong></div>
-                <h4>SHA-256 fingerprint</h4>
-                <code className="hash">{show(result.sha256)}</code>
-              </aside>
-            </div>
-
-            <p className="disclaimer">
-              Results are technical indicators, not legal proof that an image is authentic, edited or AI-generated.
-            </p>
-          </div>
-        </section>
-      )}
-    </>
+    </div>
   );
 }
+
+const CSS = `
+.fx{--line:#e1e6ee;--text:#0f1b2d;--muted:#5a6a80;--bad:#b3261e;--acc:#2563eb;--acc-d:#1d4ed8;--alt:#f4f6fa;
+  width:100%;box-sizing:border-box;padding:0 0 70px;color:var(--text);background:var(--alt);min-height:calc(100vh - 68px)}
+.fx *{box-sizing:border-box}
+.fx h1{font-size:30px;margin:0 0 6px;letter-spacing:-.6px}
+.fx-hero{background:linear-gradient(180deg,#0a1a33,#12294d);color:#fff;padding:44px max(24px,calc((100% - 1112px)/2))}
+.fx-hero h1{color:#fff;font-size:clamp(26px,3.4vw,36px)}
+.fx-hero p{color:#c3cee2;margin:0}
+.fx-upload{display:grid;grid-template-columns:minmax(320px,440px) 1fr;gap:48px;align-items:center;background:#fff;border:1px solid var(--line);border-radius:24px;padding:40px;margin:40px auto;max-width:1112px;box-shadow:0 1px 2px rgba(15,27,45,.04),0 18px 48px rgba(15,27,45,.08)}
+.fx-dz{position:relative;display:block;width:100%;aspect-ratio:1/1;border-radius:20px;border:2px dashed #b9c8e4;background:linear-gradient(180deg,#f8faff,#eef3fc);cursor:pointer;overflow:hidden;transition:border-color .15s,background .15s}
+.fx-dz:hover,.fx-dz.drag{border-color:var(--acc);background:#eaf1ff}
+.fx-dz.has{border:1px solid var(--line);background:#0b1220}
+.fx-dz img{position:absolute;inset:0;width:100%;height:100%;object-fit:contain}
+.fx-chg{position:absolute;left:50%;bottom:14px;transform:translateX(-50%);background:rgba(255,255,255,.95);color:var(--text);padding:8px 16px;border-radius:99px;font-size:13px;font-weight:700;box-shadow:0 4px 12px rgba(0,0,0,.25)}
+.fx-empty{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;padding:24px;text-align:center;color:var(--muted);font-size:15px}
+.fx-empty strong{color:var(--text);font-size:18px}
+.fx-empty u{color:var(--acc);font-weight:600;text-decoration:none}
+.fx-empty small{margin-top:10px;padding:4px 12px;border-radius:99px;background:#fff;border:1px solid var(--line);font-size:12px;font-weight:600;color:var(--muted)}
+.fx-dzicon{width:64px;height:64px;border-radius:18px;background:#fff;border:1px solid #d3def2;color:var(--acc);display:grid;place-items:center;margin-bottom:14px;box-shadow:0 6px 16px rgba(37,99,235,.12)}
+.fx-info{display:flex;flex-direction:column;gap:16px;min-width:0}
+.fx-info h2{font-size:26px;letter-spacing:-.5px;margin:0}
+.fx-lead{margin:-6px 0 0;color:var(--muted)}
+.fx-includes{list-style:none;margin:0;padding:0;display:grid;gap:10px}
+.fx-includes li{position:relative;padding-left:30px;font-weight:500}
+.fx-includes li::before{content:"";position:absolute;left:0;top:3px;width:18px;height:18px;border-radius:50%;background:#e9eff9}
+.fx-includes li::after{content:"";position:absolute;left:6px;top:7px;width:4px;height:8px;border:solid var(--acc);border-width:0 2px 2px 0;transform:rotate(45deg)}
+.fx-file{display:flex;justify-content:space-between;gap:12px;background:var(--alt);border:1px solid var(--line);padding:12px 14px;border-radius:12px;font-size:14px}
+.fx-file strong{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.fx-file span{color:var(--muted);flex-shrink:0}
+.fx-btn{border-radius:12px;height:52px;font-weight:600;font-family:inherit;font-size:16px;cursor:pointer;border:1px solid var(--acc);background:var(--acc);color:#fff;transition:background .15s}
+.fx-btn:hover:not(:disabled){background:var(--acc-d)}
+.fx-btn:disabled{background:#b8c4d8;border-color:#b8c4d8;cursor:not-allowed}
+.fx-err{background:#fdecea;border:1px solid #f3b8b3;color:var(--bad);border-radius:10px;padding:10px 14px;font-size:14px;font-weight:500}
+@media(max-width:860px){.fx-upload{grid-template-columns:1fr;padding:24px;gap:28px;margin:24px 16px}.fx-dz{max-width:440px;margin:0 auto}}
+`;

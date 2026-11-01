@@ -83,9 +83,6 @@ async def upload_image(file: UploadFile = File(...)):
     ai_result = add_explanation(ai_result, metadata_result, manipulation_result,
                                 image.width, image.height)
 
-
-
-
     return {
         "success": True,
         "message": "Image uploaded and validated successfully.",
